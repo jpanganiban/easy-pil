@@ -1,52 +1,53 @@
-import Image, ImageDraw, ImageFont
+import Image, ImageDraw, ImageFont, ImageChops, ImageOps
+from functools import partial
 
 
-class PILImage(object):
+class EasyImage(object):
 
-  fonts_dir = "/usr/share/fonts/truetype/msttcorefonts/"
+  def __init__(self, filename, base_image=None, dimensions=None, font=None):
+    self.filename = filename
+    self.base_image = self.__create_base_image(base_image)
+    self.__dimensions = dimensions
+    self.__font = font
 
-  def __init__(self, base_image=None, filename="", dimensions=(100, 100)):
-    self.__base_image = self._create_image(base_image) if base_image else self.create_bg(dimensions)
-    self.filename = filename or 'untitled.jpg'
-    self.dimensions = self.base_image.size or dimensions
+  def __repr__(self):
+    return "<EasyImage %{filename}>" % {'filename': self.filename}
 
   @property
-  def base_image(self):
-    if not self.__base_image:
-      self.__base_image = self._create_image('RGBA', self.dimensions)
-    return self.__base_image
+  def dimensions(self):
+    return self.__dimensions or self.base_image.size
 
-  def _font_path(self, filename=""):
-    """Returns a msttcorefonts path given a filename."""
-    filename = filename or "arial.ttf"
-    return "%s%s" % (self.fonts_dir, filename)
+  def __create_base_image(self, base_image, mode='RGBA', size=(100, 100),
+                          color=(255, 255, 255, 0)):
+    if base_image:
+      return Image.open(base_image)
+    return Image.new(mode, size, color)
 
-  def truetype_font(self, path, size, **kwargs):
-    return ImageFont.truetype(path, size, **kwargs)
+  def font(self, size=None):
+    if not self.__font:
+      return ImageFont.load_default()
+    return ImageFont.truetype(self.__font, size)
 
-  def _create_image(self, mode, dimensions, color="#fff"):
-    return Image.new(mode, dimensions, color)
+  def draw_text(self, text, position=(0, 0), color='black', font=None,
+                font_size=12, rotation=0, **kwargs):
+    """Draws a text on the base image."""
+    font = self.font(font_size)
 
-  def create_mask(self, dimensions=(0, 0), color="#fff"):
-    return self._create_image('L', dimensions or self.dimensions, color)
+    text_image = Image.new('L', self.dimensions, 'black')
+    draw_text_image = ImageDraw.Draw(text_image)
+    draw_text_image.text(position, text, font=font, fill='white')
 
-  def create_bg(self, dimensions=(0, 0), color="#fff"):
-    return self._create_image('RGBA', dimensions or self.dimensions, color)
+    alpha = Image.new('L', self.dimensions)
+    alpha = ImageChops.lighter(alpha, text_image)
 
-  def draw_image(self, image):
-    return ImageDraw.Draw(image)
+    solidcolor = Image.new('RGBA', self.dimensions, color)
+    image_mask = Image.eval(text_image, lambda p: 255 * (int(p != 0)))
+    self.base_image = Image.composite(solidcolor, self.base_image, image_mask)
+    self.base_image.putalpha(alpha)
 
-  def draw_text(self, text, position=(0,0), rotate=0, fill="#222",
-                font_size=12, font_name=None, **kwargs):
-    font = self.truetype_font(self._font_path(font_name), font_size)
-    image_text = self.create_mask(font.getsize(text))
-    draw_text = self.draw_image(image_text)
-    draw_text.text((0, 0), text, font=font, fill=fill)
-
-    transformed = image_text.rotate(rotate, expand=0)
-
-    self.base_image.paste(transformed, position)
-    return self.base_image
-
-  def save(self, filename="", file_format="JPEG", **kwargs):
+  def save(self, filename=None, file_format="PNG", **kwargs):
+    """Saves this EasyImage."""
     self.base_image.save(filename or self.filename, file_format, **kwargs)
+
+  def show(self):
+    self.base_image.show()
